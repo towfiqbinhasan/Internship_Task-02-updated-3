@@ -2,32 +2,32 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Student;
+use App\Services\StudentService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class StudentController extends Controller
 {
-    
+    protected $studentService;
+
+  
+    public function __construct(StudentService $studentService)
+    {
+        $this->studentService = $studentService;
+    }
+
     public function index()
     {
-        $students = Student::latest()->paginate(10)->through(function ($student) {
-           
-            $student->gender = ($student->gender === 'M' || $student->gender === 'Male') ? 'Male' : 'Female';
-            
-          
-            $student->date_of_birth = $student->dob; 
-            return $student;
-        });
+        $students = $this->studentService->getStudentsForDashboard();
 
         return Inertia::render('Dashboard', [
             'students' => $students
         ]);
     }
 
-    
     public function store(Request $request)
     {
+       
         $validated = $request->validate([
             'name'          => 'required|string|max:255',
             'email'         => 'required|email|unique:students,email',
@@ -37,55 +37,30 @@ class StudentController extends Controller
             'score'         => 'required|numeric',
         ]);
 
-      
-        $data = [
-            'name'   => $validated['name'],
-            'email'  => $validated['email'],
-            'age'    => $validated['age'],
-            'dob'    => $validated['date_of_birth'], 
-            'gender' => ($validated['gender'] === 'Male') ? 'M' : 'F',
-            'score'  => $validated['score'],
-        ];
-
-      
-        Student::create($data);
+        $this->studentService->registerStudent($validated);
 
         return redirect()->back()->with('success', 'Student added successfully!'); 
     }
 
-        public function update(Request $request, $id)
+    public function update(Request $request, $id)
     {
-        $student = Student::findOrFail($id);
-
         $validated = $request->validate([
             'name'          => 'required|string|max:255',
-            'email'         => 'required|email|unique:students,email,' . $student->id,
+            'email'         => 'required|email|unique:students,email,' . $id,
             'age'           => 'required|integer',
             'date_of_birth' => 'required|date',
             'gender'        => 'required|string',
             'score'         => 'required|numeric',
         ]);
 
-       
-        $data = [
-            'name'   => $validated['name'],
-            'email'  => $validated['email'],
-            'age'    => $validated['age'],
-            'dob'    => $validated['date_of_birth'],
-            'gender' => ($validated['gender'] === 'Male') ? 'M' : 'F',
-            'score'  => $validated['score'],
-        ];
-
-        $student->update($data);
+        $this->studentService->updateStudent($id, $validated);
 
         return redirect()->back()->with('success', 'Student updated successfully!');
     }
 
-    
     public function destroy($id)
     {
-        $student = Student::findOrFail($id);
-        $student->delete();
+        $this->studentService->deleteStudent($id);
 
         return redirect()->back()->with('success', 'Student deleted successfully!');
     }

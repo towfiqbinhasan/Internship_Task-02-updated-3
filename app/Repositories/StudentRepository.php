@@ -4,16 +4,16 @@ namespace App\Repositories;
 
 use App\Models\Student;
 
-class StudentRepository implements StudentRepositoryInterface
+class StudentRepository
 {
     protected $model;
 
-    public function __construct(Student $student)
+    public function __construct(Student $model)
     {
-        $this->model = $student;
+        $this->model = $model;
     }
 
-    public function getAllPaginated(int $perPage = 10)
+    public function paginate(int $perPage = 10)
     {
         return $this->model->latest()->paginate($perPage);
     }

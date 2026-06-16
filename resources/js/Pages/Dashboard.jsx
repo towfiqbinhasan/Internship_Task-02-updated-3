@@ -2,12 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, router, usePage } from '@inertiajs/react';
 
 export default function Dashboard(props) {
- 
-    const { auth, flash } = usePage().props;
+    const { auth } = usePage().props;  
     const pageStudents = usePage().props.students;
     const loggedInUser = auth ? auth.user : null;
 
-    
     const initialStudents = props.students || pageStudents || {};
     const studentsData = initialStudents.data || [];
     const paginationLinks = initialStudents.links || [];
@@ -16,28 +14,80 @@ export default function Dashboard(props) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
-   
+    // Navbar Dropdowns
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [isNotiOpen, setIsNotiOpen] = useState(false);
     const dropdownRef = useRef(null);
+    const notiRef = useRef(null);
 
-    
+    // 💬 Messages State
+    const [messages, setMessages] = useState([]);
+    const [isMsgOpen, setIsMsgOpen] = useState(false);
+    const [unreadMsgCount, setUnreadMsgCount] = useState(0);
+    const msgRef = useRef(null);
+
+    // 🔔 Notifications State
+    const [notifications, setNotifications] = useState([
+        { id: 1, message: "Welcome to the Student Dashboard System!", time: "Just now", read: false }
+    ]);
+    const unreadCount = notifications.filter(n => !n.read).length;
+
     useEffect(() => {
         const freshStudents = props.students || pageStudents || {};
         setStudents(freshStudents.data || []);
     }, [props.students, pageStudents]);
 
-    
+    // 🔔 REAL-TIME PUSHER ECHO LISTENER
     useEffect(() => {
-        if (flash && flash.success) {
-            showToast(flash.success, 'success');
-        }
-    }, [flash]);
+        if (window.Echo) {
+            window.Echo.channel('student-tracker')
+                .listen('.student.changed', (e) => {
+                    // ১. Toast দেখাবে
+                    showToast(e.message, e.type);
 
-   
+                    // ২. Bell notification এ যোগ হবে
+                    const newNoti = {
+                        id: Date.now(),
+                        message: e.message,
+                        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        read: false
+                    };
+                    setNotifications(prev => [newNoti, ...prev]);
+
+                    // ৩. শুধু Edit message, Messages panel এ যাবে (type === 'info')
+                    if (e.type === 'info') {
+                        const newMsg = {
+                            id: Date.now(),
+                            message: e.message,
+                            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        };
+                        setMessages(prev => [newMsg, ...prev]);
+                        setUnreadMsgCount(prev => prev + 1);
+                    }
+
+                    // ৪. Student table reload
+                    router.reload({ only: ['students'] });
+                });
+        }
+
+        return () => {
+            if (window.Echo) {
+                window.Echo.leaveChannel('student-tracker');
+            }
+        };
+    }, []);
+
+    // ড্রপডাউনের বাইরে ক্লিক করলে বন্ধ হওয়ার লজিক
     useEffect(() => {
         function handleClickOutside(event) {
             if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
                 setIsDropdownOpen(false);
+            }
+            if (notiRef.current && !notiRef.current.contains(event.target)) {
+                setIsNotiOpen(false);
+            }
+            if (msgRef.current && !msgRef.current.contains(event.target)) {
+                setIsMsgOpen(false);
             }
         }
         document.addEventListener('mousedown', handleClickOutside);
@@ -50,7 +100,11 @@ export default function Dashboard(props) {
         setToast({ show: true, message, type });
         setTimeout(() => {
             setToast({ show: false, message: '', type: 'success' });
-        }, 4000);
+        }, 5000);
+    };
+
+    const markAllAsRead = () => {
+        setNotifications(notifications.map(n => ({ ...n, read: true })));
     };
     
     // Form States
@@ -82,7 +136,7 @@ export default function Dashboard(props) {
             name: student.name,
             email: student.email,
             age: student.age,
-            date_of_birth: student.date_of_birth || '', 
+            date_of_birth: student.dob || '', 
             gender: (student.gender === 'M' || student.gender === 'Male') ? 'Male' : 'Female',
             score: student.score
         });
@@ -96,7 +150,7 @@ export default function Dashboard(props) {
             name: student.name,
             email: student.email,
             age: student.age,
-            date_of_birth: student.date_of_birth || '', 
+            date_of_birth: student.dob || '', 
             gender: (student.gender === 'M' || student.gender === 'Male') ? 'Male' : 'Female',
             score: student.score
         });
@@ -105,37 +159,24 @@ export default function Dashboard(props) {
 
     const handleFormSubmit = (e) => {
         e.preventDefault();
-        
+        const submitData = { ...formData, formMode };
+
         if (formMode === 'add') {
-            router.post('/students', formData, {
-                onSuccess: () => {
-                    setIsModalOpen(false);
-                    showToast('Student added successfully!', 'success');
-                },
-                onError: (errors) => {
-                    showToast(Object.values(errors)[0] || 'Something went wrong!', 'error');
-                }
+            router.post('/students', submitData, {
+                onSuccess: () => { setIsModalOpen(false); },
+                onError: (errors) => { showToast(Object.values(errors)[0] || 'Something went wrong!', 'error'); }
             });
         } else {
-            router.put(`/students/${currentId}`, formData, {
-                onSuccess: () => {
-                    setIsModalOpen(false);
-                    showToast('Student updated successfully!', 'success');
-                },
-                onError: (errors) => {
-                    showToast(Object.values(errors)[0] || 'Update failed!', 'error');
-                }
+            router.put(`/students/${currentId}`, submitData, {
+                onSuccess: () => { setIsModalOpen(false); },
+                onError: (errors) => { showToast(Object.values(errors)[0] || 'Update failed!', 'error'); }
             });
         }
     };
 
     const handleDelete = (id) => {
         if (confirm("Are you sure you want to delete this student from database?")) {
-            router.delete(`/students/${id}`, {
-                onSuccess: () => {
-                    showToast('Student deleted successfully!', 'success');
-                }
-            });
+            router.delete(`/students/${id}`);
         }
     };
 
@@ -151,7 +192,6 @@ export default function Dashboard(props) {
         setAppliedFilters({ search: '', gender: 'All Genders', age: '', score: '' });
     };
 
-  
     const filteredStudents = students.filter(student => {
         if (!student) return false;
         const currentStudentGender = (student.gender === 'M' || student.gender === 'Male') ? 'Male' : 'Female';
@@ -170,16 +210,23 @@ export default function Dashboard(props) {
         return matchesSearch && matchesGender && matchesAge && matchesScore;
     });
 
+    const getToastBgColor = () => {
+        if (toast.type === 'success') return '#198754';
+        if (toast.type === 'info') return '#0dcaf0';
+        if (toast.type === 'error') return '#dc3545';
+        return '#0056b3';
+    };
+
     return (
         <div style={styles.container}>
-            {/* Custom Toast Notification */}
+            {/* Toast Box */}
             {toast.show && (
-                <div style={{ ...styles.toast, backgroundColor: toast.type === 'success' ? '#198754' : '#dc3545' }}>
+                <div style={{ ...styles.toast, backgroundColor: getToastBgColor() }}>
                     {toast.message}
                 </div>
             )}
 
-            {/* Top Navbar */}
+            {/* Navbar */}
             <nav style={styles.navbar}>
                 <div style={styles.navLinks}>
                     <a href="#" style={{ ...styles.navLink, ...styles.activeNavLink }}>Home</a>
@@ -188,40 +235,97 @@ export default function Dashboard(props) {
                     <a href="#" style={styles.navLink}>Contact</a>
                 </div>
                 
-                {}
-                <div style={styles.navUserContainer} ref={dropdownRef}>
-                    <button 
-                        style={styles.navUserButton} 
-                        onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                    >
-                        Hi, {loggedInUser ? loggedInUser.name : 'Admin'} <span style={styles.arrow}>▾</span>
-                    </button>
-                    
-                    {isDropdownOpen && (
-                        <div style={styles.dropdownMenu}>
-                            {/* 👤 My Profile  */}
-                            <Link href="/profile" style={styles.dropdownItem} onClick={() => setIsDropdownOpen(false)}>
-                                👤 My Profile
-                            </Link>
-                            
-                            <hr style={styles.divider} />
-                            
-                            {/* 🚪 Logout */}
-                            <Link 
-                                href="/logout" 
-                                method="post" 
-                                as="button" 
-                                style={styles.dropdownItemBtn}
-                                onClick={() => setIsDropdownOpen(false)}
-                            >
-                                🚪 Logout
-                            </Link>
-                        </div>
-                    )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+
+                    {/* 💬 Real-time Messages Button */}
+                    <div style={styles.notiContainer} ref={msgRef}>
+                        <button
+                            style={styles.notiButton}
+                            onClick={() => {
+                                setIsMsgOpen(!isMsgOpen);
+                                setUnreadMsgCount(0);
+                            }}
+                        >
+                            💬
+                            {unreadMsgCount > 0 && (
+                                <span style={styles.notiBadge}>{unreadMsgCount}</span>
+                            )}
+                        </button>
+
+                        {isMsgOpen && (
+                            <div style={styles.notiDropdown}>
+                                <div style={styles.notiHeader}>
+                                    <span>Messages</span>
+                                </div>
+                                <div style={styles.notiBody}>
+                                    {messages.length > 0 ? (
+                                        messages.map(m => (
+                                            <div key={m.id} style={{ ...styles.notiItem, backgroundColor: '#f0f7ff' }}>
+                                                <p style={styles.notiText}>✏️ {m.message}</p>
+                                                <span style={styles.notiTime}>{m.time}</span>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div style={{ padding: '15px', textAlign: 'center', color: '#64748b' }}>
+                                            No messages yet
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* 🔔 Real-time Bell Notification */}
+                    <div style={styles.notiContainer} ref={notiRef}>
+                        <button style={styles.notiButton} onClick={() => setIsNotiOpen(!isNotiOpen)}>
+                            🔔
+                            {unreadCount > 0 && <span style={styles.notiBadge}>{unreadCount}</span>}
+                        </button>
+                        
+                        {isNotiOpen && (
+                            <div style={styles.notiDropdown}>
+                                <div style={styles.notiHeader}>
+                                    <span>Notifications</span>
+                                    <button onClick={markAllAsRead} style={styles.markReadBtn}>Mark all as read</button>
+                                </div>
+                                <div style={styles.notiBody}>
+                                    {notifications.length > 0 ? (
+                                        notifications.map(n => (
+                                            <div key={n.id} style={{ ...styles.notiItem, backgroundColor: n.read ? '#fff' : '#f0f7ff' }}>
+                                                <p style={styles.notiText}>{n.message}</p>
+                                                <span style={styles.notiTime}>{n.time}</span>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div style={{ padding: '15px', textAlign: 'center', color: '#64748b' }}>No notifications</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Profile Dropdown */}
+                    <div style={styles.navUserContainer} ref={dropdownRef}>
+                        <button style={styles.navUserButton} onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
+                            Hi, {loggedInUser ? loggedInUser.name : 'Admin'} <span style={styles.arrow}>▾</span>
+                        </button>
+                        
+                        {isDropdownOpen && (
+                            <div style={styles.dropdownMenu}>
+                                <Link href="/profile" style={styles.dropdownItem} onClick={() => setIsDropdownOpen(false)}>
+                                    👤 My Profile
+                                </Link>
+                                <hr style={styles.divider} />
+                                <Link href="/logout" method="post" as="button" style={styles.dropdownItemBtn} onClick={() => setIsDropdownOpen(false)}>
+                                    🚪 Logout
+                                </Link>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </nav>
 
-            {/* Main Content Layout */}
+            {/* Main Content Dashboard */}
             <div style={styles.mainLayout}>
                 <aside style={styles.sidebar}>
                     <h2 style={styles.sidebarTitle}>Sidebar</h2>
@@ -238,7 +342,7 @@ export default function Dashboard(props) {
                 <main style={styles.content}>
                     <h1 style={styles.pageTitle}>Students List</h1>
 
-                    {/* Filter Section */}
+                    {/* Filters */}
                     <div style={styles.filterBox}>
                         <div style={styles.filterRow}>
                             <div style={styles.inputGroup}>
@@ -298,7 +402,7 @@ export default function Dashboard(props) {
                                             <td style={styles.td}>{student.name}</td>
                                             <td style={styles.td}>{student.email}</td>
                                             <td style={styles.td}>{student.age}</td>
-                                            <td style={styles.td}>{student.date_of_birth}</td>
+                                            <td style={styles.td}>{student.dob}</td>
                                             <td style={styles.td}>{(student.gender === 'M' || student.gender === 'Male') ? 'Male' : 'Female'}</td>
                                             <td style={styles.td}>{student.score}</td>
                                             <td style={styles.td}>
@@ -338,7 +442,7 @@ export default function Dashboard(props) {
                 </main>
             </div>
 
-            {/* Shadow Modal Form */}
+            {/* Modal Form */}
             {isModalOpen && (
                 <div style={styles.modalOverlay}>
                     <div style={styles.modalBox}>
@@ -398,8 +502,16 @@ const styles = {
     navLinks: { display: 'flex', gap: '25px' },
     navLink: { color: '#e2e8f0', textDecoration: 'none', fontWeight: 'bold', fontSize: '15px' },
     activeNavLink: { color: '#fff', borderBottom: '2px solid #fff' },
-    
-    // 🔹 
+    notiContainer: { position: 'relative' },
+    notiButton: { background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', position: 'relative', padding: '5px' },
+    notiBadge: { position: 'absolute', top: '-2px', right: '-2px', backgroundColor: '#dc3545', color: '#fff', fontSize: '11px', borderRadius: '50%', padding: '2px 6px', fontWeight: 'bold' },
+    notiDropdown: { position: 'absolute', top: '40px', right: '-80px', backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', width: '320px', zIndex: 1000, overflow: 'hidden' },
+    notiHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc', color: '#334155', fontWeight: 'bold', fontSize: '14px' },
+    markReadBtn: { background: 'none', border: 'none', color: '#0056b3', fontSize: '12px', cursor: 'pointer', fontWeight: '500' },
+    notiBody: { maxHeight: '280px', overflowY: 'auto' },
+    notiItem: { padding: '12px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '4px', textAlign: 'left' },
+    notiText: { margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: '1.4' },
+    notiTime: { fontSize: '11px', color: '#94a3b8' },
     navUserContainer: { position: 'relative' },
     navUserButton: { background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '15px', fontWeight: 'bold', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: '4px' },
     arrow: { fontSize: '12px' },
@@ -407,7 +519,6 @@ const styles = {
     dropdownItem: { display: 'block', padding: '10px 16px', color: '#334155', textDecoration: 'none', fontSize: '14px', transition: 'background 0.2s', fontWeight: '500' },
     dropdownItemBtn: { display: 'block', width: '100%', textAlign: 'left', padding: '10px 16px', color: '#dc3545', background: 'none', border: 'none', fontSize: '14px', cursor: 'pointer', fontWeight: 'bold', transition: 'background 0.2s' },
     divider: { border: 0, borderTop: '1px solid #e2e8f0', margin: '4px 0' },
-
     mainLayout: { display: 'flex', flex: 1 },
     sidebar: { width: '240px', backgroundColor: '#f1f5f9', padding: '30px 20px', borderRight: '1px solid #e2e8f0' },
     sidebarTitle: { color: '#0056b3', fontSize: '22px', marginBottom: '20px', marginTop: 0 },

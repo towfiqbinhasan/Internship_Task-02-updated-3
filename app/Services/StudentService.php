@@ -2,59 +2,71 @@
 
 namespace App\Services;
 
-use App\Repositories\StudentRepositoryInterface;
+use App\Repositories\StudentRepository;
 
 class StudentService
 {
-    protected $studentRepo;
+    protected $studentRepository;
 
-   
-    public function __construct(StudentRepositoryInterface $studentRepo)
+    public function __construct(StudentRepository $studentRepository)
     {
-        $this->studentRepo = $studentRepo;
+        $this->studentRepository = $studentRepository;
     }
 
     public function getStudentsForDashboard()
     {
-        $students = $this->studentRepo->getAllPaginated(10);
-
-       
-        return $students->through(function ($student) {
-            $student->gender = ($student->gender === 'M' || $student->gender === 'Male') ? 'Male' : 'Female';
-            $student->date_of_birth = $student->dob; 
-            return $student;
-        });
+        return $this->studentRepository->paginate(10);
     }
 
-    public function registerStudent(array $validatedData)
+    public function registerStudent(array $data)
     {
-        $data = $this->formatData($validatedData);
-        return $this->studentRepo->create($data);
+        // কন্ট্রোলার থেকে অলরেডি 'dob' হয়ে আসছে, তাই সরাসরি ফরম্যাট করা হলো
+        $formattedData = $this->formatData($data);
+        return $this->studentRepository->create($formattedData);
     }
 
-    public function updateStudent(int $id, array $validatedData)
+    public function updateStudent(int $id, array $data)
     {
-        $data = $this->formatData($validatedData);
-        return $this->studentRepo->update($id, $data);
+        $formattedData = $this->formatData($data);
+        return $this->studentRepository->update($id, $formattedData);
     }
 
     public function deleteStudent(int $id)
     {
-        return $this->studentRepo->delete($id);
+        return $this->studentRepository->delete($id);
     }
+    public function getStudentById($id)
+{
+    return $this->studentRepository->findById($id);
+}
 
-    /**
-     * 
-     */
-    private function formatData(array $validatedData): array
+
+    protected function formatData(array $validatedData)
     {
-        return [
+        $formatted = [
             'name'   => $validatedData['name'],
             'email'  => $validatedData['email'],
             'age'    => $validatedData['age'],
-            'dob'    => $validatedData['date_of_birth'],
-            'gender' => ($validatedData['gender'] === 'Male') ? 'M' : 'F',
-            'score'  => $validatedData['score'],
         ];
+
+       
+        if (isset($validatedData['dob'])) {
+            $formatted['dob'] = $validatedData['dob'];
+        } 
+       
+        config(['app.timezone' => 'Asia/Dhaka']);
+        if (isset($validatedData['date_of_birth'])) {
+            $formatted['dob'] = $validatedData['date_of_birth'];
+        }
+
+        if (isset($validatedData['gender'])) {
+            $formatted['gender'] = ($validatedData['gender'] === 'Male' || $validatedData['gender'] === 'M') ? 'M' : 'F';
+        }
+
+        if (isset($validatedData['score'])) {
+            $formatted['score'] = $validatedData['score'];
+        }
+
+        return $formatted;
     }
 }
